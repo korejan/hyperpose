@@ -13,10 +13,17 @@
 #include <ttl/tensor>
 
 #include <hyperpose/utility/human.hpp>
+#include <hyperpose/utility/parallel_for.hpp>
+#ifdef HYPERPOSE_PARALLELIZE_FIND_ALL_PEAKS
+    #include <hyperpose/utility/combinable.hpp>
+#endif
 
 #include "cudnn.hpp"
 #include "logging.hpp"
 #include "trace.hpp"
+
+#undef min
+#undef max
 
 namespace hyperpose {
 
@@ -44,39 +51,43 @@ void resize_area(const ttl::tensor_view<T, 3>& input, const ttl::tensor_ref<T, 3
     // TODO: Optimize here. (50% runtime cost in PAF as the channel size is too
     // big(38)). Back soon when I get up.
 
-    for (auto k : ttl::range(channel)) {
+    hyperpose::parallel_for(channel, [size, target_size, &input, &output](const std::size_t k)
+    {
         const cv::Mat input_image(size, cv::DataType<T>::type, (T*)input[k].data());
         cv::Mat output_image(target_size, cv::DataType<T>::type, output[k].data());
         cv::resize(input_image, output_image, output_image.size(), 0, 0, cv::INTER_AREA);
-    }
+    });
 }
 
 template <typename T>
 void smooth(const ttl::tensor_view<T, 3>& input,
     const ttl::tensor_ref<T, 3>& output, int ksize)
 {
-    constexpr T sigma = 3.0;
+    constexpr const T sigma = 3.0;
     const auto [channel, height, width] = input.dims();
     const cv::Size size(width, height);
-    for (auto k : ttl::range(channel)) {
+    
+    hyperpose::parallel_for(channel, [=, &input, &output](const std::size_t k)
+    {
         const cv::Mat input_image(size, cv::DataType<T>::type,
             (T*)input[k].data());
         cv::Mat output_image(size, cv::DataType<T>::type, output[k].data());
         if (ksize > 1)
             cv::GaussianBlur(input_image, output_image, cv::Size(ksize, ksize),
                 sigma);
-    }
+    });
 }
 
 template <typename T>
 void same_max_pool_3x3_2d(const int height, const int width, //
     const T* input, T* output)
 {
-    const auto at = [&](int i, int j) { return i * width + j; };
+    constexpr const auto at = [&](int i, int j) { return i * width + j; };
 
     for (int i = 0; i < height; ++i) {
         for (int j = 0; j < width; ++j) {
-            float max_val = input[at(i, j)];
+            const int p_index = at(i, j);
+            float max_val = input[p_index];
             for (int dx = 0; dx < 3; ++dx) {
                 for (int dy = 0; dy < 3; ++dy) {
                     const int nx = i + dx - 1;
@@ -86,7 +97,7 @@ void same_max_pool_3x3_2d(const int height, const int width, //
                     }
                 }
             }
-            output[at(i, j)] = max_val;
+            output[p_index] = max_val;
         }
     }
 }
@@ -96,9 +107,10 @@ void same_max_pool_3x3(const ttl::tensor_view<T, 3>& input,
     const ttl::tensor_ref<T, 3>& output)
 {
     const auto [channel, height, width] = input.dims();
-    for (auto k : ttl::range(channel)) {
+    hyperpose::parallel_for(channel, [=, &input, &output](const decltype(channel) k)
+    {
         same_max_pool_3x3_2d(height, width, input[k].data(), output[k].data());
-    }
+    });
 }
 
 template <typename T>
@@ -168,11 +180,16 @@ public:
             same_max_pool_3x3(ttl::view(smoothed_cpu), ttl::ref(pooled_cpu));
         }
 
-        std::vector<peak_info> all_peaks;
+        using peak_info_list = std::vector<peak_info>;
+        peak_info_list all_peaks;
         {
             TRACE_SCOPE("find_peak_coords::find all peaks");
-
-            const auto maybe_add_peak_info = [&](int k, int i, int j, int off) {
+#ifdef HYPERPOSE_PARALLELIZE_FIND_ALL_PEAKS
+            const auto maybe_add_peak_info = [=, &heatmap](auto& all_peaks, const int k, const int i, const int j, const int off)
+#else
+            const auto maybe_add_peak_info = [&](const int k, const int i, const int j, const int off)
+#endif
+            {
                 if (k < COCO_N_PARTS && //
                     smoothed_cpu.data()[off] > threshold && smoothed_cpu.data()[off] == pooled_cpu.data()[off]) {
                     const int idx = all_peaks.size();
@@ -181,15 +198,43 @@ public:
                 }
             };
 
+#ifdef HYPERPOSE_PARALLELIZE_FIND_ALL_PEAKS
+            hyperpose::combinable<peak_info_list> peaks_tmp;
+            hyperpose::parallel_for<int>(channel, [=, size=(width*height), &peaks_tmp](const int k)
+            {
+                auto& local_peaks = peaks_tmp.local();
+                int off = size * k;
+#else
             int off = 0;
-            for (int k = 0; k < channel; ++k) {
+            for (int k = 0; k < channel; ++k)
+            {
+#endif
                 for (int i = 0; i < height; ++i) {
                     for (int j = 0; j < width; ++j) {
-                        maybe_add_peak_info(k, i, j, off);
+                        maybe_add_peak_info
+                        (
+#ifdef HYPERPOSE_PARALLELIZE_FIND_ALL_PEAKS
+                            local_peaks,
+#endif
+                            k, i, j, off
+                        );
                         ++off;
                     }
                 }
             }
+#ifdef HYPERPOSE_PARALLELIZE_FIND_ALL_PEAKS
+            );
+
+            peaks_tmp.combine_each([&all_peaks](auto& peaks)
+            {
+                all_peaks.reserve(all_peaks.size() + peaks.size());
+                for (auto& peak : peaks)
+                {
+                    peak.id = all_peaks.size();
+                    all_peaks.push_back(std::move(peak));
+                }
+            });
+#endif
         }
         return all_peaks;
     }

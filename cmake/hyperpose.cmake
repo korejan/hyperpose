@@ -1,9 +1,16 @@
 # Library Name
 set(POSE_LIB_NAME hyperpose)
 
+SET(CPU_PARALLEL_LIB "NONE" CACHE STRING "Select a which (CPU) parallel library to use for parallelizing some hyperpose loops.")
+SET_PROPERTY(CACHE CPU_PARALLEL_LIB PROPERTY STRINGS CPP17 TBB PPL NONE)
+MESSAGE(STATUS "CPU_PARALLEL_LIB='${CPU_PARALLEL_LIB}'")
+
 # Dependencies(OpenCV & CUDA)
 INCLUDE(cmake/cuda.cmake)
 FIND_PACKAGE(OpenCV)
+IF(CPU_PARALLEL_LIB STREQUAL "TBB")
+	FIND_PACKAGE(TBB REQUIRED tbb)
+ENDIF()
 
 ADD_LIBRARY(
         ${POSE_LIB_NAME} # SHARED
@@ -15,6 +22,10 @@ ADD_LIBRARY(
         src/thread_pool.cpp
         src/pose_proposal.cpp
         src/human.cpp)
+		
+IF(NOT(CPU_PARALLEL_LIB STREQUAL "NONE"))
+	TARGET_COMPILE_DEFINITIONS(${POSE_LIB_NAME} PRIVATE "HYPERPOSE_USE_${CPU_PARALLEL_LIB}_PARALLEL_FOR")
+ENDIF()
 
 TARGET_LINK_LIBRARIES(
         ${POSE_LIB_NAME}
@@ -23,7 +34,8 @@ TARGET_LINK_LIBRARIES(
         nvinfer
         nvparsers
         nvonnxparser
-        ${OpenCV_LIBS})
+        ${OpenCV_LIBS}
+		${TBB_IMPORTED_TARGETS})
 
 TARGET_INCLUDE_DIRECTORIES(${POSE_LIB_NAME}
         PUBLIC

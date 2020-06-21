@@ -295,8 +295,7 @@ namespace parser {
     std::vector<human_t> paf::process(const feature_map_t& conf_map, const feature_map_t& paf_map)
     {
         TRACE_SCOPE("PAF");
-        std::vector<human_t> humans{};
-
+        
         if (conf_map.shape().size() != 3 || paf_map.shape().size() != 3)
             error("Input of PAF::PROCESS didn't meet requirements: [conf, paf], tensor.dims() == 3\n");
 
@@ -342,8 +341,8 @@ namespace parser {
         const ttl::tensor_view<float, 3>& pafmap = ttl::view(*(m_ttl->m_upsample_paf));
 
         std::vector<std::vector<connection>> all_connections;
-
-        for (int pair_id = 0; pair_id < COCO_N_PAIRS; pair_id++)
+        all_connections.reserve(COCO_N_PAIRS);
+        for (int pair_id = 0; pair_id < COCO_N_PAIRS; ++pair_id)
             all_connections.push_back(get_connections(pafmap, all_peaks,
                 peak_ids_by_channel, pair_id,
                 m_feature_size.height, m_paf_thresh));
@@ -351,6 +350,8 @@ namespace parser {
         const auto human_refs = get_humans(all_peaks, all_connections);
         info("Got ", human_refs.size(), " humans\n");
 
+        std::vector<human_t> humans;
+        humans.reserve(human_refs.size());
         for (const auto& hr : human_refs) {
             human_t human;
             human.score = hr.score;

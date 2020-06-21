@@ -74,6 +74,6 @@ using internal_t = std::vector<feature_map_t>;
 /// \param flip_rb Flip the BGR order to RBG or not.
 /// \warning Users must ensure that the size in parameter `images` are the same.
 void nhwc_images_append_nchw_batch(
-    std::vector<float>& data, std::vector<cv::Mat> images, double factor = 1.0, bool flip_rb = true);
+    std::vector<float>& data, std::vector<cv::Mat>& images, double factor = 1.0, bool flip_rb = true);
 
 } // namespace hyperpose
