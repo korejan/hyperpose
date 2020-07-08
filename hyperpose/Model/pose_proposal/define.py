@@ -3,7 +3,7 @@ from enum import Enum
 #specialized for coco
 class CocoPart(Enum):
     Nose = 0
-    Neck = 1
+    Instance = 1
     RShoulder = 2
     RElbow = 3
     RWrist = 4
@@ -20,21 +20,20 @@ class CocoPart(Enum):
     LEye = 15
     REar = 16
     LEar = 17
-    Background = 18
 
-CocoLimb=list(zip([1, 8, 9,  1,  11, 12, 1, 2, 3,  2, 1, 5, 6, 5,  1,  0,  0,  14, 15],
-                  [8, 9, 10, 11, 12, 13, 2, 3, 4, 16, 5, 6, 7, 17, 0, 14, 15,  16, 17]))
+CocoLimb=list(zip([1, 8, 9,  1,  11, 12, 1, 2, 3, 1, 5, 6, 1, 0,  0,  14, 15],
+                  [8, 9, 10, 11, 12, 13, 2, 3, 4, 5, 6, 7, 0, 14, 15, 16, 17]))
 
 CocoColor = [[255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0], [85, 255, 0], [0, 255, 0],
               [0, 255, 85], [0, 255, 170], [0, 255, 255], [0, 170, 255], [0, 85, 255], [0, 0, 255], [85, 0, 255],
               [170, 0, 255], [255, 0, 255], [255, 0, 170], [255, 0, 85]]
+
 
 to_coco_converter={0:0, 2:6, 3:8, 4:10, 5:5, 6:7, 7:9, 8:12, 9:14, 10:16, 11:11, 12:13, 13:15, 14:2, 15:1, 16:4, 17:3}
 
 from_coco_converter={0:0, 1:15, 2:14, 3:17, 4:16, 5:5, 6:2, 7:6, 8:3, 9:7, 10:4, 11:11, 12:8, 13:12, 14:9, 15:13, 16:10}
 
 def coco_input_converter(coco_kpts):
-    cvt_kpts=np.zeros(shape=[len(CocoPart),2])
     transform = np.array(
             list(zip([0, 5, 6, 8, 10, 5, 7, 9, 12, 14, 16, 11, 13, 15, 2, 1, 4, 3],
                      [0, 6, 6, 8, 10, 5, 7, 9, 12, 14, 16, 11, 13, 15, 2, 1, 4, 3])))
@@ -46,9 +45,7 @@ def coco_input_converter(coco_kpts):
     ys[lost_idx]=-1000
     cvt_xs=(xs[transform[:,0]]+xs[transform[:,1]])/2
     cvt_ys=(ys[transform[:,0]]+ys[transform[:,1]])/2
-    cvt_kpts[:-1,:]=np.array([cvt_xs,cvt_ys]).transpose()
-    #adding background point
-    cvt_kpts[-1:,:]=-1000
+    cvt_kpts=np.array([cvt_xs,cvt_ys]).transpose()
     return cvt_kpts
 
 def coco_output_converter(kpt_list):
@@ -59,7 +56,7 @@ def coco_output_converter(kpt_list):
         if(x<0 or y<0):
             kpts+=[0.0,0.0,0.0]
         else:
-            kpts+=[x,y,2.0]
+            kpts+=[x,y,1.0]
     return kpts
 
 def get_coco_flip_list():
@@ -110,7 +107,7 @@ def get_coco_flip_list():
             flip_list.append(part.value)
     return flip_list
 
-Coco_fliplist=get_coco_flip_list()
+Coco_flip_list=get_coco_flip_list()
 
 #specialized for mpii
 class MpiiPart(Enum):
@@ -129,10 +126,10 @@ class MpiiPart(Enum):
     LKnee=12
     LAnkle=13
     Center=14
-    Background=15
+    Instance=15
 
-MpiiLimb=list(zip([0, 1, 2, 3, 1, 5, 6, 1,  14,  8, 9,  14, 11, 12],
-                  [1, 2, 3, 4, 5, 6, 7, 14,  8,  9, 10, 11, 12, 13]))
+MpiiLimb=list(zip([15, 15, 1, 2, 3, 1, 5, 6, 1,  14,  8, 9,  14, 11, 12],
+                  [ 0, 1,  2, 3, 4, 5, 6, 7, 14,  8,  9, 10, 11, 12, 13]))
 
 MpiiColor = [[255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0], [85, 255, 0], [0, 255, 0],
               [0, 255, 85], [0, 255, 170], [0, 255, 255], [0, 170, 255], [0, 85, 255], [0, 0, 255], [85, 0, 255],
@@ -142,27 +139,23 @@ to_mpii_converter={0:9, 1:8, 2:12, 3:11, 4:10, 5:13, 6:14, 7:15, 8:2, 9:1, 10:0,
 
 from_mpii_converter={0:10, 1:9, 2:8, 3:11, 4:12, 5:13, 8:1, 9:0, 10:4, 11:3, 12:2, 13:5, 14:6, 15:7}
 
-def mpii_input_converter(mpii_kpts):
+def mpii_input_converter(coco_kpts):
     cvt_kpts=np.zeros(shape=[len(MpiiPart),2])
     transform = np.array([9,8,12,11,10,13,14,15,2,1,0,3,4,5])
-    xs = mpii_kpts[0::3]
-    ys = mpii_kpts[1::3]
-    vs = mpii_kpts[2::3]
+    xs = coco_kpts[0::3]
+    ys = coco_kpts[1::3]
+    vs = coco_kpts[2::3]
     lost_idx=np.where(vs<=0)[0]
     xs[lost_idx]=-1000
     ys[lost_idx]=-1000
     cvt_xs=xs[transform]
     cvt_ys=ys[transform]
     cvt_kpts[:-2,:]=np.array([cvt_xs,cvt_ys]).transpose()
-    if(xs[2]<=0 or xs[3]<=0 or xs[12]<=0 or xs[13]<=0 or ys[2]<=0 or ys[3]<=0 or ys[12]<=0 or ys[13]<=0):
-        center_x=-1000
-        center_y=-1000
-    else:
-        center_x=(xs[2]+xs[3]+xs[12]+xs[13])/4
-        center_y=(ys[2]+ys[3]+ys[12]+ys[13])/4
+    center_x=(xs[2]+xs[3]+xs[12]+xs[13])/4
+    center_y=(ys[2]+ys[3]+ys[12]+ys[13])/4
     cvt_kpts[14,:]=np.array([center_x,center_y])
     #adding background point
-    cvt_kpts[-1:,:]=-1000
+    cvt_kpts[15,:]=(cvt_kpts[0,:]+cvt_kpts[1,:])/2
     return cvt_kpts
 
 def mpii_output_converter(kpt_list):
